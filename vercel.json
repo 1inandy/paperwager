@@ -1,0 +1,24 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/train-model",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/sync-market-odds",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/generate-model-lines",
+      "schedule": "15,45 * * * *"
+    },
+    {
+      "path": "/api/cron/enrich-logos",
+      "schedule": "30 */6 * * *"
+    },
+    {
+      "path": "/api/cron/settle-bets",
+      "schedule": "*/15 * * * *"
+    }
+  ]
+}
