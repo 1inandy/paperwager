@@ -1,13 +1,27 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { BetSlip } from "@/components/bet-slip";
 import { LeagueLogo } from "@/components/entity-logo";
 import { ModelComparison } from "@/components/model-comparison";
 import { TeamMatchup, TeamLogo } from "@/components/team-logo";
-import { americanToDecimal, formatAmericanOdds } from "@/lib/betting/odds";
+import {
+  americanToDecimal,
+  formatAmericanOdds,
+  formatCurrency,
+} from "@/lib/betting/odds";
 import { isTeamSelection, logoForSelection } from "@/lib/teams/logos";
 import type { BetSelection, CachedEvent, MarketType } from "@/lib/types";
+
+interface ExistingPendingEventBet {
+  id: string;
+  selection: string;
+  market: MarketType;
+  line: number | null;
+  stake: number;
+  oddsAmerican: number;
+}
 
 interface EventPageClientProps {
   event: CachedEvent;
@@ -24,6 +38,7 @@ interface EventPageClientProps {
   initialAmerican?: number;
   initialLine?: number;
   leagueLogoUrl?: string | null;
+  existingPendingBet?: ExistingPendingEventBet | null;
 }
 
 function buildSelection(
@@ -73,11 +88,13 @@ export function EventPageClient({
   initialAmerican,
   initialLine,
   leagueLogoUrl,
+  existingPendingBet,
 }: EventPageClientProps) {
   const bookmaker = event.odds?.bookmakers?.[0];
   const bookmakerTitle = bookmaker?.title ?? event.market_bookmaker ?? "Market";
 
   const [selection, setSelection] = useState<BetSelection | null>(() => {
+    if (existingPendingBet) return null;
     if (!initialMarket || !initialSelection || initialAmerican == null) return null;
     return buildSelection(
       event,
@@ -96,6 +113,7 @@ export function EventPageClient({
     { key: "spreads", label: "Spread" },
     { key: "totals", label: "Total (O/U)" },
   ];
+  const hasPendingEventBet = Boolean(existingPendingBet);
 
   return (
     <div className="grid gap-6 lg:grid-cols-3">
@@ -175,7 +193,9 @@ export function EventPageClient({
                     <button
                       key={`${outcome.name}-${outcome.point ?? ""}`}
                       type="button"
-                      onClick={() =>
+                      disabled={hasPendingEventBet}
+                      onClick={() => {
+                        if (hasPendingEventBet) return;
                         setSelection(
                           buildSelection(
                             event,
@@ -186,12 +206,14 @@ export function EventPageClient({
                             outcome.price,
                             market.outcomes.map((marketOutcome) => marketOutcome.name),
                           ),
-                        )
-                      }
+                        );
+                      }}
                       className={`flex items-center justify-between rounded-lg border px-4 py-3 text-left transition ${
                         isSelected
                           ? "border-primary bg-primary/10"
-                          : "border-border bg-background hover:border-primary hover:bg-primary/5"
+                          : hasPendingEventBet
+                            ? "cursor-not-allowed border-border bg-background opacity-55"
+                            : "border-border bg-background hover:border-primary hover:bg-primary/5"
                       }`}
                     >
                       {isTeam && logo ? (
@@ -226,13 +248,51 @@ export function EventPageClient({
       </div>
 
       <div className="lg:sticky lg:top-24 lg:self-start">
-        <BetSlip
-          scorecardId={scorecardId}
-          balance={balance}
-          selection={selection}
-          onClear={() => setSelection(null)}
-        />
+        {existingPendingBet ? (
+          <PendingEventBetCard bet={existingPendingBet} />
+        ) : (
+          <BetSlip
+            scorecardId={scorecardId}
+            balance={balance}
+            selection={selection}
+            onClear={() => setSelection(null)}
+          />
+        )}
       </div>
     </div>
   );
+}
+
+function PendingEventBetCard({ bet }: { bet: ExistingPendingEventBet }) {
+  return (
+    <div className="card">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h3 className="font-semibold">Pending Bet</h3>
+        <span className="badge-upcoming">Open</span>
+      </div>
+      <div className="space-y-2 text-sm">
+        <p className="font-semibold">{bet.selection}</p>
+        <p className="text-muted capitalize">
+          {formatMarketLabel(bet.market)}
+          {bet.line != null ? ` (${bet.line})` : ""} ·{" "}
+          {formatAmericanOdds(bet.oddsAmerican)}
+        </p>
+        <p className="text-muted">
+          Stake:{" "}
+          <span className="font-mono text-foreground">
+            {formatCurrency(bet.stake)}
+          </span>
+        </p>
+      </div>
+      <Link href="/app/bets" className="btn-secondary mt-4 w-full">
+        Manage bet
+      </Link>
+    </div>
+  );
+}
+
+function formatMarketLabel(market: MarketType) {
+  if (market === "h2h") return "Moneyline";
+  if (market === "spreads") return "Spread";
+  return "Total";
 }

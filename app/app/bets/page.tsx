@@ -6,11 +6,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { PendingBetsRefresh } from "@/components/pending-bets-refresh";
 
 interface BetsPageProps {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; placed?: string; cancelled?: string }>;
 }
 
 export default async function BetsPage({ searchParams }: BetsPageProps) {
-  const { tab = "open" } = await searchParams;
+  const { tab = "open", placed, cancelled } = await searchParams;
   const actor = await getActor();
   const scorecard = actor ? await getActiveScorecard(actor) : null;
 
@@ -54,6 +54,18 @@ export default async function BetsPage({ searchParams }: BetsPageProps) {
       <p className="mb-6 text-sm text-muted">
         Scorecard: {scorecard.name} — {formatCurrency(Number(scorecard.balance))}
       </p>
+
+      {placed === "1" && (
+        <div className="mb-4 rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
+          Bet placed. It is now listed under Open.
+        </div>
+      )}
+
+      {cancelled === "1" && (
+        <div className="mb-4 rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
+          Bet cancelled and stake refunded.
+        </div>
+      )}
 
       <div className="mb-6 flex gap-2">
         <a

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { placeBetAction } from "@/lib/actions";
 import {
   calculatePayout,
@@ -24,6 +25,7 @@ export function BetSlip({
   selection,
   onClear,
 }: BetSlipProps) {
+  const router = useRouter();
   const [stake, setStake] = useState("100");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -55,14 +57,19 @@ export function BetSlip({
   );
 
   function handlePlaceBet() {
+    if (!selection) return;
+
+    const selectedBet = selection;
     setError(null);
+
     startTransition(async () => {
-      const result = await placeBetAction(scorecardId, selection!, stakeNum);
+      const result = await placeBetAction(scorecardId, selectedBet, stakeNum);
       if (result.error) {
         setError(result.error);
       } else {
         onClear();
         setStake("100");
+        router.push("/app/bets?placed=1");
       }
     });
   }

@@ -179,6 +179,22 @@ export async function placeBetAction(
   const betRecord = buildBetRecord(scorecardId, canonicalSelection, stake);
   const admin = createAdminClient();
 
+  const { data: existingBet, error: existingBetError } = await admin
+    .from("bets")
+    .select("id")
+    .eq("scorecard_id", scorecardId)
+    .eq("event_id", canonicalSelection.eventId)
+    .eq("status", "pending")
+    .limit(1)
+    .maybeSingle();
+
+  if (existingBetError) return { error: existingBetError.message };
+  if (existingBet) {
+    return {
+      error: "You already have a pending bet on this event. Cancel it before placing another.",
+    };
+  }
+
   const newBalance = Number(scorecard.balance) - stake;
 
   let { data: bet, error: betError } = await admin
@@ -217,6 +233,91 @@ export async function placeBetAction(
 
   revalidatePath("/app");
   revalidatePath("/app/bets");
+  revalidatePath(`/app/events/${canonicalSelection.eventId}`);
+  return { success: true };
+}
+
+export async function cancelPendingBetAction(betId: string) {
+  const actor = await getActor();
+  if (!actor) return { error: "Not authenticated" };
+
+  const admin = createAdminClient();
+  const { data: bet, error: betError } = await admin
+    .from("bets")
+    .select("id, scorecard_id, event_id, selection, stake, status, commence_time")
+    .eq("id", betId)
+    .maybeSingle();
+
+  if (betError) return { error: betError.message };
+  if (!bet) return { error: "Bet not found" };
+
+  try {
+    await assertScorecardAccess(bet.scorecard_id);
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Not allowed",
+    };
+  }
+
+  if (bet.status !== "pending") {
+    return { error: "Only pending bets can be cancelled" };
+  }
+
+  const commenceTime = new Date(bet.commence_time);
+  if (commenceTime.getTime() <= Date.now()) {
+    return { error: "Event has already started — pending bets are locked" };
+  }
+
+  const { data: scorecard, error: scorecardError } = await admin
+    .from("scorecards")
+    .select("balance")
+    .eq("id", bet.scorecard_id)
+    .single();
+
+  if (scorecardError) return { error: scorecardError.message };
+  if (!scorecard) return { error: "Scorecard not found" };
+
+  const stake = Number(bet.stake);
+  const settledAt = new Date().toISOString();
+  const { data: cancelledBet, error: cancelError } = await admin
+    .from("bets")
+    .update({
+      status: "void",
+      settled_at: settledAt,
+      profit: 0,
+    })
+    .eq("id", bet.id)
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
+
+  if (cancelError) return { error: cancelError.message };
+  if (!cancelledBet) return { error: "Bet is no longer pending" };
+
+  const { error: balanceError } = await admin
+    .from("scorecards")
+    .update({ balance: Number(scorecard.balance) + stake })
+    .eq("id", bet.scorecard_id);
+
+  if (balanceError) return { error: balanceError.message };
+
+  const { error: transactionError } = await admin
+    .from("balance_transactions")
+    .insert({
+      scorecard_id: bet.scorecard_id,
+      bet_id: bet.id,
+      amount: stake,
+      type: "bet_void",
+      description: `Cancelled: ${bet.selection}`,
+    });
+
+  if (transactionError?.code !== "23505" && transactionError) {
+    return { error: transactionError.message };
+  }
+
+  revalidatePath("/app");
+  revalidatePath("/app/bets");
+  revalidatePath(`/app/events/${bet.event_id}`);
   return { success: true };
 }
 
@@ -405,16 +506,18 @@ export async function getBetsForScorecard(scorecardId: string) {
 
 export async function getScorecardStats(scorecardId: string) {
   const bets = await getBetsForScorecard(scorecardId);
+  const pending = bets.filter((b) => b.status === "pending");
   const settled = bets.filter((b) => b.status !== "pending");
-  const won = settled.filter((b) => b.status === "won").length;
-  const totalStaked = bets.reduce((sum, b) => sum + Number(b.stake), 0);
+  const graded = bets.filter((b) => b.status === "won" || b.status === "lost");
+  const won = graded.filter((b) => b.status === "won").length;
+  const openExposure = pending.reduce((sum, b) => sum + Number(b.stake), 0);
   const totalProfit = settled.reduce((sum, b) => sum + Number(b.profit ?? 0), 0);
 
   return {
     totalBets: bets.length,
-    openBets: bets.filter((b) => b.status === "pending").length,
-    winRate: settled.length > 0 ? Math.round((won / settled.length) * 100) : 0,
-    totalStaked,
+    openBets: pending.length,
+    winRate: graded.length > 0 ? Math.round((won / graded.length) * 100) : 0,
+    openExposure,
     totalProfit,
   };
 }

@@ -13,7 +13,7 @@ interface ScorecardStats {
   totalBets: number;
   openBets: number;
   winRate: number;
-  totalStaked: number;
+  openExposure: number;
   totalProfit: number;
 }
 
@@ -112,8 +112,8 @@ export function ScorecardsClient({
                   <Stat label="Open bets" value={String(stats.openBets)} />
                   <Stat label="Win rate" value={`${stats.winRate}%`} />
                   <Stat
-                    label="Total staked"
-                    value={formatCurrency(stats.totalStaked)}
+                    label="Open exposure"
+                    value={formatCurrency(stats.openExposure)}
                   />
                 </div>
               )}

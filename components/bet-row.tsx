@@ -1,6 +1,7 @@
 import { formatCurrency, formatAmericanOdds } from "@/lib/betting/odds";
 import { TeamMatchup, TeamLogo } from "@/components/team-logo";
 import { isTeamSelection, logoForSelection } from "@/lib/teams/logos";
+import { CancelBetButton } from "@/components/cancel-bet-button";
 import type { BetStatus } from "@/lib/types";
 
 const statusColors: Record<BetStatus, string> = {
@@ -71,11 +72,16 @@ export function BetRow({ bet, logos }: BetRowProps) {
             </p>
           </div>
         </div>
-        <span
-          className={`text-sm font-semibold capitalize ${statusColors[bet.status as BetStatus]}`}
-        >
-          {bet.status}
-        </span>
+        <div className="flex flex-col items-end gap-2">
+          <span
+            className={`text-sm font-semibold capitalize ${statusColors[bet.status as BetStatus]}`}
+          >
+            {bet.status}
+          </span>
+          {bet.status === "pending" && (
+            <CancelBetButton betId={bet.id} stake={Number(bet.stake)} />
+          )}
+        </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-4 text-sm">
         <span>

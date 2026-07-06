@@ -104,12 +104,12 @@ export default async function DashboardPage() {
             <MetricCard
               label="Win rate"
               value={`${stats.winRate}%`}
-              detail={`${stats.settledBets} settled bets`}
+              detail={`${stats.gradedBets} graded bets`}
             />
             <MetricCard
               label="Settled P&L"
               value={formatSignedCurrency(stats.settledProfit)}
-              detail={`${formatCurrency(stats.totalStaked)} staked`}
+              detail="Excludes open bets"
               tone={stats.settledProfit >= 0 ? "positive" : "negative"}
             />
           </div>
@@ -312,9 +312,10 @@ function getDashboardStats(scorecard: Scorecard, bets: Bet[]) {
   const bankrollChange = balance - startingBalance;
   const pending = bets.filter((bet) => bet.status === "pending");
   const settled = bets.filter((bet) => bet.status !== "pending");
-  const won = settled.filter((bet) => bet.status === "won");
-  const lost = settled.filter((bet) => bet.status === "lost");
-  const totalStaked = bets.reduce((sum, bet) => sum + Number(bet.stake), 0);
+  const graded = bets.filter((bet) => bet.status === "won" || bet.status === "lost");
+  const won = graded.filter((bet) => bet.status === "won");
+  const lost = graded.filter((bet) => bet.status === "lost");
+  const stakeSum = bets.reduce((sum, bet) => sum + Number(bet.stake), 0);
   const settledProfit = settled.reduce(
     (sum, bet) => sum + Number(bet.profit ?? 0),
     0,
@@ -328,10 +329,11 @@ function getDashboardStats(scorecard: Scorecard, bets: Bet[]) {
     startingBalance > 0 ? Math.max(0, Math.min(balance / startingBalance, 1)) : 0;
 
   return {
-    averageStake: bets.length > 0 ? totalStaked / bets.length : 0,
+    averageStake: bets.length > 0 ? stakeSum / bets.length : 0,
     balance,
     bankrollChange,
     bankrollProgress: Math.round(rawProgress * 100),
+    gradedBets: graded.length,
     lostBets: lost.length,
     openBets: pending.length,
     openExposure,
@@ -341,8 +343,7 @@ function getDashboardStats(scorecard: Scorecard, bets: Bet[]) {
     settledProfit,
     startingBalance,
     totalBets: bets.length,
-    totalStaked,
-    winRate: settled.length > 0 ? Math.round((won.length / settled.length) * 100) : 0,
+    winRate: graded.length > 0 ? Math.round((won.length / graded.length) * 100) : 0,
     wonBets: won.length,
   };
 }
