@@ -1,11 +1,13 @@
 import { LoginForm } from "@/components/login-form";
+import { safeRedirectPath } from "@/lib/auth/redirect";
 
 interface LoginPageProps {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; next?: string }>;
 }
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const { error } = await searchParams;
+  const { error, next: nextParam } = await searchParams;
+  const next = safeRedirectPath(nextParam);
 
   return (
     <>
@@ -19,7 +21,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           get a fresh link.
         </p>
       )}
-      <LoginForm />
+      <LoginForm next={next} />
     </>
   );
 }

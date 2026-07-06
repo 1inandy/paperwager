@@ -1,9 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { TournamentManagementPanel } from "@/components/tournament-management-panel";
 import { TournamentLeaderboard } from "@/components/tournament-leaderboard";
+import { TournamentShareLink } from "@/components/tournament-share-link";
 import { getActor } from "@/lib/auth/actor";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatCurrency } from "@/lib/betting/odds";
+import { getSiteOrigin } from "@/lib/site-url";
+import { formatTournamentDateRange } from "@/lib/tournaments/duration";
+import type { TournamentRole } from "@/lib/types";
 
 interface TournamentDetailProps {
   params: Promise<{ id: string }>;
@@ -26,12 +31,16 @@ export default async function TournamentDetailPage({ params }: TournamentDetailP
 
   const { data: participant } = await admin
     .from("tournament_participants")
-    .select("id")
+    .select("id, role")
     .eq("tournament_id", id)
     .eq("user_id", actor.userId!)
     .maybeSingle();
 
   if (tournament.creator_id !== actor.userId && !participant) notFound();
+
+  const isOwner = tournament.creator_id === actor.userId;
+  const role = (participant?.role ?? (isOwner ? "admin" : "member")) as TournamentRole;
+  const canManage = isOwner || role === "admin";
 
   const { data: leaderboard } = await admin
     .from("tournament_leaderboard")
@@ -39,7 +48,21 @@ export default async function TournamentDetailPage({ params }: TournamentDetailP
     .eq("tournament_id", id)
     .order("rank");
 
+  const { data: participants } = canManage
+    ? await admin
+        .from("tournament_participants")
+        .select(
+          "id, user_id, scorecard_id, role, joined_at, profiles(display_name), scorecards(balance, starting_balance)",
+        )
+        .eq("tournament_id", id)
+        .order("joined_at", { ascending: true })
+    : { data: [] };
+
   const isActive = tournament.status === "active" && new Date(tournament.ends_at) > new Date();
+  const siteOrigin = await getSiteOrigin();
+  const shareUrl = `${siteOrigin}/tournaments/invite/${encodeURIComponent(
+    tournament.invite_code,
+  )}`;
 
   return (
     <div>
@@ -51,8 +74,11 @@ export default async function TournamentDetailPage({ params }: TournamentDetailP
         <div>
           <h1 className="text-2xl font-bold">{tournament.name}</h1>
           <p className="text-sm text-muted">
-            {new Date(tournament.starts_at).toLocaleString()} —{" "}
-            {new Date(tournament.ends_at).toLocaleString()}
+            {formatTournamentDateRange(
+              tournament.starts_at,
+              tournament.ends_at,
+              "datetime",
+            )}
           </p>
         </div>
         <div className="text-right">
@@ -66,18 +92,20 @@ export default async function TournamentDetailPage({ params }: TournamentDetailP
           <p className="text-xs text-muted">
             Starting balance: {formatCurrency(Number(tournament.starting_balance))}
           </p>
+          {canManage && (
+            <div className="mt-3 flex justify-end">
+              <TournamentManagementPanel
+                tournament={tournament as Parameters<typeof TournamentManagementPanel>[0]["tournament"]}
+                participants={(participants ?? []) as Parameters<typeof TournamentManagementPanel>[0]["participants"]}
+                currentUserId={actor.userId!}
+                isOwner={isOwner}
+              />
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="card mb-6">
-        <h2 className="mb-2 text-sm font-semibold text-muted">Invite code</h2>
-        <p className="font-mono text-2xl font-bold tracking-widest text-primary">
-          {tournament.invite_code}
-        </p>
-        <p className="mt-2 text-xs text-muted">
-          Share this code with friends so they can join the tournament.
-        </p>
-      </div>
+      <TournamentShareLink inviteCode={tournament.invite_code} shareUrl={shareUrl} />
 
       <div className="card">
         <h2 className="mb-4 text-lg font-semibold">Leaderboard</h2>

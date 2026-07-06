@@ -1,6 +1,7 @@
 export type BetStatus = "pending" | "won" | "lost" | "push" | "void";
 export type MarketType = "h2h" | "spreads" | "totals";
 export type TournamentStatus = "draft" | "active" | "completed";
+export type TournamentRole = "admin" | "member";
 export type TransactionType =
   | "bet_placed"
   | "bet_won"
@@ -142,6 +143,7 @@ export interface TournamentParticipant {
   tournament_id: string;
   user_id: string;
   scorecard_id: string;
+  role: TournamentRole;
   joined_at: string;
   profiles?: Profile;
   scorecards?: Scorecard;

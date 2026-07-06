@@ -6,18 +6,37 @@ import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createGuestSession, migrateGuestToUser } from "@/lib/guest/session";
 import { getActor, getScorecardsForActor } from "@/lib/auth/actor";
+import { safeRedirectPath } from "@/lib/auth/redirect";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { STARTING_BALANCE } from "@/lib/constants";
 import { resolveCanonicalSelection } from "@/lib/betting/resolve-selection";
 import { buildBetRecord, validateBet } from "@/lib/betting/validation";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getSiteOrigin } from "@/lib/site-url";
-import type { BetSelection } from "@/lib/types";
+import {
+  isTournamentDuration,
+  resolveTournamentEndsAt,
+} from "@/lib/tournaments/duration";
+import type { BetSelection, TournamentRole, TournamentStatus } from "@/lib/types";
 import { customAlphabet } from "nanoid";
 
 const inviteAlphabet = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 8);
 
 type BetRecord = ReturnType<typeof buildBetRecord>;
+type ActionResult = { error?: string; success?: true };
+
+function isTournamentRole(value: FormDataEntryValue | null): value is TournamentRole {
+  return value === "admin" || value === "member";
+}
+
+function isTournamentStatus(value: FormDataEntryValue | null): value is TournamentStatus {
+  return value === "draft" || value === "active" || value === "completed";
+}
+
+function getFormString(formData: FormData, key: string) {
+  const value = formData.get(key);
+  return typeof value === "string" ? value.trim() : "";
+}
 
 function isMissingMarketOutcomesColumn(error: { message?: string } | null) {
   return Boolean(
@@ -30,6 +49,41 @@ function withoutMarketOutcomes(record: BetRecord): Omit<BetRecord, "market_outco
   const { market_outcomes, ...copy } = record;
   void market_outcomes;
   return copy;
+}
+
+async function getTournamentAccess(
+  admin: ReturnType<typeof createAdminClient>,
+  tournamentId: string,
+  userId: string,
+) {
+  const { data: tournament, error: tournamentError } = await admin
+    .from("tournaments")
+    .select("id, creator_id")
+    .eq("id", tournamentId)
+    .maybeSingle();
+
+  if (tournamentError) throw new Error(tournamentError.message);
+  if (!tournament) throw new Error("Tournament not found");
+
+  const { data: participant, error: participantError } = await admin
+    .from("tournament_participants")
+    .select("id, user_id, role")
+    .eq("tournament_id", tournamentId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (participantError) throw new Error(participantError.message);
+
+  const isOwner = tournament.creator_id === userId;
+  const role = (participant?.role ?? (isOwner ? "admin" : "member")) as TournamentRole;
+
+  return {
+    tournament,
+    participant,
+    isOwner,
+    role,
+    canManage: isOwner || role === "admin",
+  };
 }
 
 async function assertScorecardAccess(scorecardId: string) {
@@ -68,6 +122,7 @@ export async function signUpAction(formData: FormData) {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
   const displayName = formData.get("displayName") as string;
+  const next = safeRedirectPath(formData.get("next"));
 
   const origin = await getSiteOrigin();
   const supabase = await createClient();
@@ -76,7 +131,7 @@ export async function signUpAction(formData: FormData) {
     password,
     options: {
       data: { display_name: displayName },
-      emailRedirectTo: `${origin}/auth/confirm?next=/app`,
+      emailRedirectTo: `${origin}/auth/confirm?next=${encodeURIComponent(next)}`,
     },
   });
 
@@ -92,10 +147,10 @@ export async function signUpAction(formData: FormData) {
     await migrateGuestToUser(data.user.id);
   }
 
-  redirect("/app");
+  redirect(next);
 }
 
-export async function resendConfirmationAction(email: string) {
+export async function resendConfirmationAction(email: string, nextValue?: string) {
   const headerList = await headers();
   const ip =
     headerList.get("x-forwarded-for")?.split(",")[0]?.trim() ??
@@ -114,12 +169,13 @@ export async function resendConfirmationAction(email: string) {
     return { error: "Too many requests for this email. Try again later." };
   }
 
+  const next = safeRedirectPath(nextValue);
   const origin = await getSiteOrigin();
   const supabase = await createClient();
   const { error } = await supabase.auth.resend({
     type: "signup",
     email,
-    options: { emailRedirectTo: `${origin}/auth/confirm?next=/app` },
+    options: { emailRedirectTo: `${origin}/auth/confirm?next=${encodeURIComponent(next)}` },
   });
 
   if (error) return { error: error.message };
@@ -129,6 +185,7 @@ export async function resendConfirmationAction(email: string) {
 export async function signInAction(formData: FormData) {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
+  const next = safeRedirectPath(formData.get("next"));
 
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -144,7 +201,7 @@ export async function signInAction(formData: FormData) {
     await migrateGuestToUser(data.user.id);
   }
 
-  redirect("/app");
+  redirect(next);
 }
 
 export async function signOutAction() {
@@ -392,9 +449,31 @@ export async function createTournamentAction(formData: FormData): Promise<void> 
   const name = (formData.get("name") as string)?.trim();
   const startingBalance = Number(formData.get("startingBalance") ?? STARTING_BALANCE);
   const startsAt = formData.get("startsAt") as string;
-  const endsAt = formData.get("endsAt") as string;
+  const duration = formData.get("duration");
+  const customEndsAt = formData.get("endsAt") as string | null;
 
-  if (!name || !startsAt || !endsAt) throw new Error("All fields are required");
+  if (!name || !startsAt || !isTournamentDuration(duration)) {
+    throw new Error("All fields are required");
+  }
+
+  const startsAtDate = new Date(startsAt);
+  if (Number.isNaN(startsAtDate.getTime())) {
+    throw new Error("Start time is invalid");
+  }
+
+  const endsAtDate = resolveTournamentEndsAt({
+    startsAt: startsAtDate,
+    duration,
+    customEndsAt,
+  });
+
+  if (Number.isNaN(endsAtDate.getTime())) {
+    throw new Error("End time is invalid");
+  }
+
+  if (endsAtDate <= startsAtDate) {
+    throw new Error("End time must be after start time");
+  }
 
   const admin = createAdminClient();
   const inviteCode = inviteAlphabet();
@@ -405,8 +484,8 @@ export async function createTournamentAction(formData: FormData): Promise<void> 
       creator_id: actor.userId,
       name,
       starting_balance: startingBalance,
-      starts_at: new Date(startsAt).toISOString(),
-      ends_at: new Date(endsAt).toISOString(),
+      starts_at: startsAtDate.toISOString(),
+      ends_at: endsAtDate.toISOString(),
       invite_code: inviteCode,
       status: "active",
     })
@@ -434,6 +513,7 @@ export async function createTournamentAction(formData: FormData): Promise<void> 
     tournament_id: tournament.id,
     user_id: actor.userId,
     scorecard_id: scorecard.id,
+    role: "admin",
   });
 
   revalidatePath("/app/tournaments");
@@ -486,9 +566,282 @@ export async function joinTournamentAction(inviteCode: string): Promise<void> {
     tournament_id: tournament.id,
     user_id: actor.userId,
     scorecard_id: scorecard.id,
+    role: "member",
   });
 
   redirect(`/app/tournaments/${tournament.id}`);
+}
+
+export async function updateTournamentSettingsAction(
+  formData: FormData,
+): Promise<ActionResult> {
+  const actor = await getActor();
+  if (!actor || actor.type === "guest") return { error: "Not allowed" };
+
+  const tournamentId = getFormString(formData, "tournamentId");
+  const name = getFormString(formData, "name");
+  const startsAt = getFormString(formData, "startsAt");
+  const duration = formData.get("duration");
+  const customEndsAt = getFormString(formData, "endsAt");
+  const status = formData.get("status");
+  const startingBalance = Number(formData.get("startingBalance") ?? STARTING_BALANCE);
+
+  if (!tournamentId || !name || !startsAt) {
+    return { error: "All fields are required" };
+  }
+
+  if (!isTournamentDuration(duration) || !isTournamentStatus(status)) {
+    return { error: "Tournament settings are invalid" };
+  }
+
+  if (!Number.isFinite(startingBalance) || startingBalance < 100) {
+    return { error: "Starting balance must be at least 100" };
+  }
+
+  const startsAtDate = new Date(startsAt);
+  if (Number.isNaN(startsAtDate.getTime())) {
+    return { error: "Start time is invalid" };
+  }
+
+  let endsAtDate: Date;
+  try {
+    endsAtDate = resolveTournamentEndsAt({
+      startsAt: startsAtDate,
+      duration,
+      customEndsAt,
+    });
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "End time is invalid",
+    };
+  }
+
+  if (Number.isNaN(endsAtDate.getTime())) {
+    return { error: "End time is invalid" };
+  }
+
+  if (endsAtDate <= startsAtDate) {
+    return { error: "End time must be after start time" };
+  }
+
+  const admin = createAdminClient();
+
+  try {
+    const access = await getTournamentAccess(admin, tournamentId, actor.userId!);
+    if (!access.canManage) return { error: "Not allowed" };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Unable to update tournament",
+    };
+  }
+
+  const { error } = await admin
+    .from("tournaments")
+    .update({
+      name,
+      starting_balance: startingBalance,
+      starts_at: startsAtDate.toISOString(),
+      ends_at: endsAtDate.toISOString(),
+      status,
+    })
+    .eq("id", tournamentId);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/app/tournaments");
+  revalidatePath(`/app/tournaments/${tournamentId}`);
+  return { success: true };
+}
+
+export async function updateTournamentParticipantRoleAction(
+  formData: FormData,
+): Promise<ActionResult> {
+  const actor = await getActor();
+  if (!actor || actor.type === "guest") return { error: "Not allowed" };
+
+  const tournamentId = getFormString(formData, "tournamentId");
+  const participantId = getFormString(formData, "participantId");
+  const role = formData.get("role");
+
+  if (!tournamentId || !participantId || !isTournamentRole(role)) {
+    return { error: "Role update is invalid" };
+  }
+
+  const admin = createAdminClient();
+
+  let access: Awaited<ReturnType<typeof getTournamentAccess>>;
+  try {
+    access = await getTournamentAccess(admin, tournamentId, actor.userId!);
+    if (!access.canManage) return { error: "Not allowed" };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Unable to update role",
+    };
+  }
+
+  const { data: participant, error: participantError } = await admin
+    .from("tournament_participants")
+    .select("id, user_id")
+    .eq("id", participantId)
+    .eq("tournament_id", tournamentId)
+    .maybeSingle();
+
+  if (participantError) return { error: participantError.message };
+  if (!participant) return { error: "Participant not found" };
+
+  if (participant.user_id === access.tournament.creator_id && role !== "admin") {
+    return { error: "The owner must stay an admin" };
+  }
+
+  const { error } = await admin
+    .from("tournament_participants")
+    .update({ role })
+    .eq("id", participantId)
+    .eq("tournament_id", tournamentId);
+
+  if (error) return { error: error.message };
+
+  revalidatePath(`/app/tournaments/${tournamentId}`);
+  return { success: true };
+}
+
+export async function transferTournamentOwnerAction(
+  formData: FormData,
+): Promise<ActionResult> {
+  const actor = await getActor();
+  if (!actor || actor.type === "guest") return { error: "Not allowed" };
+
+  const tournamentId = getFormString(formData, "tournamentId");
+  const newOwnerUserId = getFormString(formData, "newOwnerUserId");
+
+  if (!tournamentId || !newOwnerUserId) {
+    return { error: "Choose a new owner" };
+  }
+
+  const admin = createAdminClient();
+
+  try {
+    const access = await getTournamentAccess(admin, tournamentId, actor.userId!);
+    if (!access.isOwner) return { error: "Only the owner can transfer ownership" };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Unable to transfer ownership",
+    };
+  }
+
+  const { data: participant, error: participantError } = await admin
+    .from("tournament_participants")
+    .select("id, user_id")
+    .eq("tournament_id", tournamentId)
+    .eq("user_id", newOwnerUserId)
+    .maybeSingle();
+
+  if (participantError) return { error: participantError.message };
+  if (!participant) return { error: "New owner must already be in the tournament" };
+
+  const { error: tournamentError } = await admin
+    .from("tournaments")
+    .update({ creator_id: newOwnerUserId })
+    .eq("id", tournamentId);
+
+  if (tournamentError) return { error: tournamentError.message };
+
+  const { error: roleError } = await admin
+    .from("tournament_participants")
+    .update({ role: "admin" })
+    .eq("id", participant.id);
+
+  if (roleError) return { error: roleError.message };
+
+  revalidatePath("/app/tournaments");
+  revalidatePath(`/app/tournaments/${tournamentId}`);
+  return { success: true };
+}
+
+export async function deleteTournamentAction(formData: FormData): Promise<ActionResult> {
+  const actor = await getActor();
+  if (!actor || actor.type === "guest") return { error: "Not allowed" };
+
+  const tournamentId = getFormString(formData, "tournamentId");
+  if (!tournamentId) return { error: "Tournament is required" };
+
+  const admin = createAdminClient();
+
+  try {
+    const access = await getTournamentAccess(admin, tournamentId, actor.userId!);
+    if (!access.isOwner) return { error: "Only the owner can delete this tournament" };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Unable to delete tournament",
+    };
+  }
+
+  const { data: scorecards, error: scorecardsError } = await admin
+    .from("scorecards")
+    .select("id")
+    .eq("tournament_id", tournamentId);
+
+  if (scorecardsError) return { error: scorecardsError.message };
+
+  const scorecardIds = (scorecards ?? []).map((scorecard) => scorecard.id);
+  if (scorecardIds.length > 0) {
+    const { data: bets, error: betsError } = await admin
+      .from("bets")
+      .select("id")
+      .in("scorecard_id", scorecardIds);
+
+    if (betsError) return { error: betsError.message };
+
+    const betIds = (bets ?? []).map((bet) => bet.id);
+    if (betIds.length > 0) {
+      const { error } = await admin
+        .from("balance_transactions")
+        .delete()
+        .in("bet_id", betIds);
+
+      if (error) return { error: error.message };
+    }
+
+    const { error: transactionError } = await admin
+      .from("balance_transactions")
+      .delete()
+      .in("scorecard_id", scorecardIds);
+
+    if (transactionError) return { error: transactionError.message };
+
+    const { error: betsDeleteError } = await admin
+      .from("bets")
+      .delete()
+      .in("scorecard_id", scorecardIds);
+
+    if (betsDeleteError) return { error: betsDeleteError.message };
+  }
+
+  const { error: participantsError } = await admin
+    .from("tournament_participants")
+    .delete()
+    .eq("tournament_id", tournamentId);
+
+  if (participantsError) return { error: participantsError.message };
+
+  if (scorecardIds.length > 0) {
+    const { error: scorecardsDeleteError } = await admin
+      .from("scorecards")
+      .delete()
+      .in("id", scorecardIds);
+
+    if (scorecardsDeleteError) return { error: scorecardsDeleteError.message };
+  }
+
+  const { error: tournamentError } = await admin
+    .from("tournaments")
+    .delete()
+    .eq("id", tournamentId);
+
+  if (tournamentError) return { error: tournamentError.message };
+
+  revalidatePath("/app/tournaments");
+  redirect("/app/tournaments");
 }
 
 export async function getBetsForScorecard(scorecardId: string) {

@@ -6,7 +6,11 @@ import { signInAction, resendConfirmationAction } from "@/lib/actions";
 
 type SignInResult = { error?: string; needsConfirmation?: boolean; email?: string };
 
-export function LoginForm() {
+interface LoginFormProps {
+  next?: string;
+}
+
+export function LoginForm({ next = "/app" }: LoginFormProps) {
   const [state, formAction, pending] = useActionState<SignInResult | null, FormData>(
     async (_prev, formData) => {
       const result = await signInAction(formData);
@@ -19,13 +23,14 @@ export function LoginForm() {
   async function handleResend() {
     if (!state?.email) return;
     setResendState("sending");
-    const result = await resendConfirmationAction(state.email);
+    const result = await resendConfirmationAction(state.email, next);
     setResendState(result?.error ? "error" : "sent");
   }
 
   return (
     <>
       <form action={formAction} className="space-y-4">
+        <input type="hidden" name="next" value={next} />
         <div>
           <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-muted">
             Email
@@ -79,7 +84,10 @@ export function LoginForm() {
       </form>
       <p className="mt-4 text-center text-sm text-muted">
         No account?{" "}
-        <Link href="/signup" className="font-medium text-primary hover:underline">
+        <Link
+          href={`/signup?next=${encodeURIComponent(next)}`}
+          className="font-medium text-primary hover:underline"
+        >
           Sign up
         </Link>
       </p>

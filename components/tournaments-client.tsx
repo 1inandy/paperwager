@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import Link from "next/link";
 import { joinTournamentAction } from "@/lib/actions";
 import { formatCurrency } from "@/lib/betting/odds";
+import { formatTournamentDateRange } from "@/lib/tournaments/duration";
 import type { Tournament } from "@/lib/types";
 
 interface TournamentsClientProps {
@@ -83,8 +84,7 @@ export function TournamentsClient({
                 <div>
                   <h2 className="font-semibold">{t.name}</h2>
                   <p className="text-xs text-muted">
-                    {new Date(t.starts_at).toLocaleDateString()} —{" "}
-                    {new Date(t.ends_at).toLocaleDateString()}
+                    {formatTournamentDateRange(t.starts_at, t.ends_at)}
                   </p>
                 </div>
                 <div className="text-right">

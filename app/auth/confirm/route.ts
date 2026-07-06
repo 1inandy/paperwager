@@ -3,20 +3,7 @@ import { redirect } from "next/navigation";
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { migrateGuestToUser } from "@/lib/guest/session";
-
-function safeRedirectPath(value: string | null) {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) {
-    return "/app";
-  }
-
-  try {
-    const url = new URL(value, "https://paperwager.local");
-    if (url.origin !== "https://paperwager.local") return "/app";
-    return `${url.pathname}${url.search}${url.hash}`;
-  } catch {
-    return "/app";
-  }
-}
+import { safeRedirectPath } from "@/lib/auth/redirect";
 
 // Landing target for the "Confirm signup" email link. Establishes the
 // session server-side (via cookies) so the user is already logged in
@@ -42,5 +29,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  redirect("/login?error=confirmation_failed");
+  redirect(`/login?error=confirmation_failed&next=${encodeURIComponent(next)}`);
 }

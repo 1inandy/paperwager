@@ -6,7 +6,11 @@ import { signUpAction, resendConfirmationAction } from "@/lib/actions";
 
 type SignUpResult = { error?: string; needsConfirmation?: boolean; email?: string };
 
-export function SignUpForm() {
+interface SignUpFormProps {
+  next?: string;
+}
+
+export function SignUpForm({ next = "/app" }: SignUpFormProps) {
   const [dismissed, setDismissed] = useState(false);
   const [state, formAction, pending] = useActionState<SignUpResult | null, FormData>(
     async (_prev, formData) => {
@@ -18,11 +22,12 @@ export function SignUpForm() {
   );
 
   if (state?.needsConfirmation && state.email && !dismissed) {
-    return <CheckEmail email={state.email} onStartOver={() => setDismissed(true)} />;
+    return <CheckEmail email={state.email} next={next} onStartOver={() => setDismissed(true)} />;
   }
 
   return (
     <form action={formAction} className="space-y-4">
+      <input type="hidden" name="next" value={next} />
       <div>
         <label htmlFor="displayName" className="mb-1.5 block text-sm font-medium text-muted">
           Display name
@@ -80,7 +85,10 @@ export function SignUpForm() {
       </p>
       <p className="text-center text-sm text-muted">
         Already have an account?{" "}
-        <Link href="/login" className="font-medium text-primary hover:underline">
+        <Link
+          href={`/login?next=${encodeURIComponent(next)}`}
+          className="font-medium text-primary hover:underline"
+        >
           Log in
         </Link>
       </p>
@@ -88,12 +96,20 @@ export function SignUpForm() {
   );
 }
 
-function CheckEmail({ email, onStartOver }: { email: string; onStartOver: () => void }) {
+function CheckEmail({
+  email,
+  next,
+  onStartOver,
+}: {
+  email: string;
+  next: string;
+  onStartOver: () => void;
+}) {
   const [resendState, setResendState] = useState<"idle" | "sending" | "sent" | "error">("idle");
 
   async function handleResend() {
     setResendState("sending");
-    const result = await resendConfirmationAction(email);
+    const result = await resendConfirmationAction(email, next);
     setResendState(result?.error ? "error" : "sent");
   }
 
@@ -121,7 +137,7 @@ function CheckEmail({ email, onStartOver }: { email: string; onStartOver: () => 
         <p className="mt-2 text-sm leading-relaxed text-muted">
           We sent a confirmation link to{" "}
           <span className="font-medium text-foreground">{email}</span>. Click it to activate
-          your account — you&apos;ll land right back in the app, already signed in.
+          your account — you&apos;ll land right back where you started, already signed in.
         </p>
       </div>
 

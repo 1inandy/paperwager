@@ -1,13 +1,15 @@
 "use client";
 
 import { useTransition } from "react";
+import Link from "next/link";
 import {
   createScorecardAction,
   deleteScorecardAction,
   setDefaultScorecardAction,
 } from "@/lib/actions";
 import { formatCurrency } from "@/lib/betting/odds";
-import type { Scorecard } from "@/lib/types";
+import { formatTournamentDateRange } from "@/lib/tournaments/duration";
+import type { Scorecard, TournamentRole, TournamentStatus } from "@/lib/types";
 
 interface ScorecardStats {
   totalBets: number;
@@ -19,12 +21,25 @@ interface ScorecardStats {
 
 interface ScorecardsClientProps {
   scorecards: Scorecard[];
+  tournamentScorecards: TournamentScorecard[];
   statsMap: Record<string, ScorecardStats>;
   isGuest: boolean;
 }
 
+interface TournamentScorecard extends Scorecard {
+  tournament: {
+    id: string;
+    name: string;
+    status: TournamentStatus;
+    starts_at: string;
+    ends_at: string;
+  };
+  role: TournamentRole;
+}
+
 export function ScorecardsClient({
   scorecards,
+  tournamentScorecards,
   statsMap,
   isGuest,
 }: ScorecardsClientProps) {
@@ -43,6 +58,11 @@ export function ScorecardsClient({
           scorecards.
         </div>
       )}
+
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+        <h2 className="text-lg font-semibold">Personal scorecards</h2>
+        <span className="text-sm text-muted">{scorecards.length} total</span>
+      </div>
 
       <div className="mb-8 space-y-4">
         {scorecards.map((sc) => {
@@ -145,6 +165,91 @@ export function ScorecardsClient({
             </button>
           </div>
         </form>
+      )}
+
+      {!isGuest && (
+        <section className="mt-10">
+          <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">Tournament scorecards</h2>
+              <p className="text-sm text-muted">
+                Entries tied to tournament leaderboards.
+              </p>
+            </div>
+            <span className="text-sm text-muted">
+              {tournamentScorecards.length} total
+            </span>
+          </div>
+
+          {tournamentScorecards.length === 0 ? (
+            <div className="card text-sm text-muted">
+              Join or create a tournament to see those scorecards here.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {tournamentScorecards.map((sc) => {
+                const stats = statsMap[sc.id];
+                const profit = Number(sc.balance) - Number(sc.starting_balance);
+
+                return (
+                  <div key={sc.id} className="card">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-lg font-semibold">
+                            {sc.tournament.name}
+                          </h3>
+                          <span className="badge-upcoming capitalize">
+                            {sc.role}
+                          </span>
+                          <span className="text-xs font-medium capitalize text-muted">
+                            {sc.tournament.status}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-muted">
+                          {formatTournamentDateRange(
+                            sc.tournament.starts_at,
+                            sc.tournament.ends_at,
+                          )}
+                        </p>
+                        <p className="mt-2 font-mono text-xl text-primary">
+                          {formatCurrency(Number(sc.balance))}
+                        </p>
+                        <p
+                          className={`text-sm font-mono ${
+                            profit >= 0 ? "text-success" : "text-danger"
+                          }`}
+                        >
+                          {profit >= 0 ? "+" : ""}
+                          {formatCurrency(profit)} in tournament
+                        </p>
+                      </div>
+
+                      <Link
+                        href={`/app/tournaments/${sc.tournament.id}`}
+                        className="btn-secondary text-xs"
+                      >
+                        Open tournament
+                      </Link>
+                    </div>
+
+                    {stats && (
+                      <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-4 sm:grid-cols-4">
+                        <Stat label="Total bets" value={String(stats.totalBets)} />
+                        <Stat label="Open bets" value={String(stats.openBets)} />
+                        <Stat label="Win rate" value={`${stats.winRate}%`} />
+                        <Stat
+                          label="Open exposure"
+                          value={formatCurrency(stats.openExposure)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
       )}
     </div>
   );
