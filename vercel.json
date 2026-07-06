@@ -6,19 +6,19 @@
     },
     {
       "path": "/api/cron/sync-market-odds",
-      "schedule": "*/10 * * * *"
+      "schedule": "0 5 * * *"
     },
     {
       "path": "/api/cron/generate-model-lines",
-      "schedule": "15,45 * * * *"
+      "schedule": "0 6 * * *"
     },
     {
       "path": "/api/cron/enrich-logos",
-      "schedule": "30 */6 * * *"
+      "schedule": "0 7 * * *"
     },
     {
       "path": "/api/cron/settle-bets",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 8 * * *"
     }
   ]
 }
