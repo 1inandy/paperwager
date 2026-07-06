@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BrandLogo } from "@/components/brand-logo";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -10,12 +11,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
       <main className="page-enter w-full max-w-md">
         <Link href="/" className="mb-8 flex items-center justify-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-background">
-            PW
-          </span>
-          <span className="site-logo-text font-display text-lg font-semibold tracking-tight text-foreground">
-            PaperWager
-          </span>
+          <BrandLogo priority />
         </Link>
 
         <div className="card p-8 shadow-2xl shadow-black/20">{children}</div>

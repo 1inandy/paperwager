@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { BrandLogo } from "@/components/brand-logo";
 import { OddsTicker } from "./odds-ticker";
 import { BootHero } from "./boot-hero";
 import { ValuePanels } from "./value-panels";
@@ -26,12 +27,7 @@ export function LandingClient({
       <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-background">
-              PW
-            </span>
-            <span className="site-logo-text font-display text-lg font-semibold tracking-tight text-foreground">
-              PaperWager
-            </span>
+            <BrandLogo priority />
           </Link>
           <div className="flex items-center gap-2">
             <Link href="/login" className="btn-secondary header-auth-link text-sm">
@@ -74,9 +70,7 @@ export function LandingClient({
 
       <footer className="border-t border-border">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-6 py-8 text-sm text-muted sm:flex-row">
-          <span className="font-display font-semibold tracking-tight text-foreground/80">
-            PaperWager
-          </span>
+          <BrandLogo markClassName="h-7 w-7" textClassName="text-base text-foreground/80" />
           <span>Simulated sports betting · independent demo, no league or team affiliation.</span>
         </div>
       </footer>

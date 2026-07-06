@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { BrandLogo } from "@/components/brand-logo";
 import { ScorecardPicker } from "@/components/scorecard-picker";
 import { signOutAction } from "@/lib/actions";
 import type { Scorecard } from "@/lib/types";
@@ -38,8 +39,8 @@ export function AppHeader({
     <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-3">
         <div className="flex items-center gap-6">
-          <Link href="/app/sports" className="text-lg font-bold text-primary">
-            PaperWager
+          <Link href="/app/sports" className="text-primary">
+            <BrandLogo priority textClassName="text-primary" />
           </Link>
           <nav className="hidden items-center gap-1 sm:flex">
             {visibleNavItems.map((item) => (
