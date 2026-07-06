@@ -13,7 +13,14 @@ function slugify(group: string) {
   return encodeURIComponent(group.toLowerCase().replace(/\s+/g, "-"));
 }
 
-export default async function SportsHomePage() {
+interface SportsHomePageProps {
+  searchParams: Promise<{ cardSet?: string }>;
+}
+
+export default async function SportsHomePage({
+  searchParams,
+}: SportsHomePageProps) {
+  const { cardSet } = await searchParams;
   let groups: Awaited<ReturnType<typeof getSportsByGroup>> | null = null;
 
   if (isOddsApiEnabled()) {
@@ -50,6 +57,12 @@ export default async function SportsHomePage() {
           Browse leagues and place paper bets against real market lines.
         </p>
       </div>
+
+      {cardSet && (
+        <div className="card mb-6 border-success/30 bg-success/10 text-sm text-success">
+          Card set to {cardSet}
+        </div>
+      )}
 
       {!isOddsApiEnabled() && (
         <div className="card mb-6 border-accent/30 bg-accent/5 text-sm">

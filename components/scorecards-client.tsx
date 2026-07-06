@@ -2,9 +2,11 @@
 
 import { useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   createScorecardAction,
   deleteScorecardAction,
+  setActiveScorecardAction,
   setDefaultScorecardAction,
 } from "@/lib/actions";
 import { formatCurrency } from "@/lib/betting/odds";
@@ -43,7 +45,19 @@ export function ScorecardsClient({
   statsMap,
   isGuest,
 }: ScorecardsClientProps) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
+
+  function handleUseForBetting(scorecardId: string, confirmationLabel: string) {
+    startTransition(async () => {
+      const result = await setActiveScorecardAction(scorecardId);
+      if (!result.error) {
+        router.push(
+          `/app/sports?cardSet=${encodeURIComponent(confirmationLabel)}`,
+        );
+      }
+    });
+  }
 
   return (
     <div>
@@ -93,7 +107,15 @@ export function ScorecardsClient({
                 </div>
 
                 {!isGuest && (
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => handleUseForBetting(sc.id, sc.name)}
+                      className="btn-primary text-xs"
+                    >
+                      Make a bet
+                    </button>
                     {!sc.is_default && (
                       <button
                         type="button"
@@ -225,12 +247,27 @@ export function ScorecardsClient({
                         </p>
                       </div>
 
-                      <Link
-                        href={`/app/tournaments/${sc.tournament.id}`}
-                        className="btn-secondary text-xs"
-                      >
-                        Open tournament
-                      </Link>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() =>
+                            handleUseForBetting(
+                              sc.id,
+                              `${sc.tournament.name} - tournament`,
+                            )
+                          }
+                          className="btn-primary text-xs"
+                        >
+                          Make a bet
+                        </button>
+                        <Link
+                          href={`/app/tournaments/${sc.tournament.id}`}
+                          className="btn-secondary text-xs"
+                        >
+                          Open tournament
+                        </Link>
+                      </div>
                     </div>
 
                     {stats && (

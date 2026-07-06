@@ -5,7 +5,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type { Scorecard, Tournament, TournamentRole } from "@/lib/types";
 
 type TournamentScorecard = Scorecard & {
-  tournament: Pick<Tournament, "id" | "name" | "status" | "starts_at" | "ends_at">;
+  tournament: Pick<
+    Tournament,
+    "id" | "creator_id" | "name" | "status" | "starts_at" | "ends_at"
+  >;
   role: TournamentRole;
 };
 
@@ -43,7 +46,7 @@ export default async function ScorecardsPage() {
           admin.from("scorecards").select("*").in("id", scorecardIds),
           admin
             .from("tournaments")
-            .select("id, name, status, starts_at, ends_at")
+            .select("id, creator_id, name, status, starts_at, ends_at")
             .in("id", tournamentIds),
         ]);
 

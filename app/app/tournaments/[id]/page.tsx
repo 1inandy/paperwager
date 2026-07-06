@@ -29,12 +29,14 @@ export default async function TournamentDetailPage({ params }: TournamentDetailP
 
   if (!tournament) notFound();
 
-  const { data: participant } = await admin
+  const { data: participant, error: participantError } = await admin
     .from("tournament_participants")
     .select("id, role")
     .eq("tournament_id", id)
     .eq("user_id", actor.userId!)
     .maybeSingle();
+
+  if (participantError) throw new Error(participantError.message);
 
   if (tournament.creator_id !== actor.userId && !participant) notFound();
 

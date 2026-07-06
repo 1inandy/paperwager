@@ -2,10 +2,15 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createGuestSession, migrateGuestToUser } from "@/lib/guest/session";
-import { getActor, getScorecardsForActor } from "@/lib/auth/actor";
+import {
+  ACTIVE_SCORECARD_COOKIE,
+  getActor,
+  getPlayableScorecardsForActor,
+  getScorecardsForActor,
+} from "@/lib/auth/actor";
 import { safeRedirectPath } from "@/lib/auth/redirect";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { STARTING_BALANCE } from "@/lib/constants";
@@ -210,6 +215,25 @@ export async function signOutAction() {
   redirect("/");
 }
 
+export async function setActiveScorecardAction(scorecardId: string): Promise<ActionResult> {
+  const actor = await getActor();
+  if (!actor) return { error: "Not authenticated" };
+
+  const scorecards = await getPlayableScorecardsForActor(actor);
+  const scorecard = scorecards.find((s) => s.id === scorecardId);
+  if (!scorecard) return { error: "Scorecard not found" };
+
+  const cookieStore = await cookies();
+  cookieStore.set(ACTIVE_SCORECARD_COOKIE, scorecard.id, {
+    path: "/app",
+    sameSite: "lax",
+    maxAge: 60 * 60 * 24 * 365,
+  });
+
+  revalidatePath("/app");
+  return { success: true };
+}
+
 export async function placeBetAction(
   scorecardId: string,
   selection: BetSelection,
@@ -218,7 +242,7 @@ export async function placeBetAction(
   const actor = await getActor();
   if (!actor) return { error: "Not authenticated" };
 
-  const scorecards = await getScorecardsForActor(actor);
+  const scorecards = await getPlayableScorecardsForActor(actor);
   const scorecard = scorecards.find((s) => s.id === scorecardId);
   if (!scorecard) return { error: "Scorecard not found" };
 
@@ -509,12 +533,14 @@ export async function createTournamentAction(formData: FormData): Promise<void> 
 
   if (sError || !scorecard) throw new Error(sError?.message ?? "Failed to create tournament scorecard");
 
-  await admin.from("tournament_participants").insert({
+  const { error: participantError } = await admin.from("tournament_participants").insert({
     tournament_id: tournament.id,
     user_id: actor.userId,
     scorecard_id: scorecard.id,
     role: "admin",
   });
+
+  if (participantError) throw new Error(participantError.message);
 
   revalidatePath("/app/tournaments");
   redirect(`/app/tournaments/${tournament.id}`);
@@ -562,12 +588,14 @@ export async function joinTournamentAction(inviteCode: string): Promise<void> {
 
   if (sError || !scorecard) throw new Error(sError?.message ?? "Failed to join");
 
-  await admin.from("tournament_participants").insert({
+  const { error: participantError } = await admin.from("tournament_participants").insert({
     tournament_id: tournament.id,
     user_id: actor.userId,
     scorecard_id: scorecard.id,
     role: "member",
   });
+
+  if (participantError) throw new Error(participantError.message);
 
   redirect(`/app/tournaments/${tournament.id}`);
 }

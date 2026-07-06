@@ -1,7 +1,11 @@
 import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/app-shell";
 import { isCurrentUserAdmin } from "@/lib/auth/admin";
-import { getActor, getActiveScorecard, getScorecardsForActor } from "@/lib/auth/actor";
+import {
+  getActor,
+  getActiveScorecard,
+  getPlayableScorecardsForActor,
+} from "@/lib/auth/actor";
 
 export default async function AppLayout({
   children,
@@ -11,7 +15,7 @@ export default async function AppLayout({
   const actor = await getActor();
   if (!actor) redirect("/");
 
-  const scorecards = await getScorecardsForActor(actor);
+  const scorecards = await getPlayableScorecardsForActor(actor);
   const activeScorecard = await getActiveScorecard(actor);
   const isAdmin = await isCurrentUserAdmin(actor);
 
