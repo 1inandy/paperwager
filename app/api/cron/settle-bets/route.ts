@@ -6,6 +6,7 @@ import { settleBet } from "@/lib/betting/settlement";
 import { fetchScoresForSport, isOddsApiConfigured } from "@/lib/odds/client";
 import { isOddsApiEnabled } from "@/lib/odds/provider";
 import { shouldVoidEvent, SETTLEMENT_RULE_VERSION } from "@/lib/betting/rules";
+import { teamsMatch } from "@/lib/betting/odds";
 import {
   espnGameToScoreResult,
   syncModelScoresForSettlement,
@@ -14,6 +15,24 @@ import { authorizeCron } from "@/lib/cron/auth";
 import { withCronLock } from "@/lib/cron/lock";
 import type { BetStatus, EventOdds } from "@/lib/types";
 import type { ScoreResult } from "@/lib/betting/settlement";
+import type { EspnGame } from "@/lib/model/espn";
+
+const SCORE_MATCH_WINDOW_MS = 6 * 60 * 60 * 1000;
+
+type CachedSettlementEvent = {
+  event_id: string;
+  sport_key: string;
+  home_team: string;
+  away_team: string;
+  commence_time: string;
+  odds: EventOdds | null;
+};
+
+type PendingSettlementBet = {
+  event_id: string;
+  sport_key: string;
+  commence_time: string;
+};
 
 function getMarketOutcomesByEvent(
   events: { event_id: string; odds: EventOdds | null }[],
@@ -55,6 +74,145 @@ function getBetMarketOutcomes(
   return outcomesByEvent.get(bet.event_id)?.get(bet.market) ?? null;
 }
 
+function formatEspnDate(value: string, offsetDays = 0) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  date.setUTCDate(date.getUTCDate() + offsetDays);
+  return date.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+function getScoreMatch(
+  event: CachedSettlementEvent,
+  game: EspnGame,
+): { homeScore: number; awayScore: number } | null {
+  if (!game.completed || game.homeScore == null || game.awayScore == null) {
+    return null;
+  }
+
+  const eventTime = new Date(event.commence_time).getTime();
+  const gameTime = new Date(game.commenceTime).getTime();
+  if (
+    Number.isNaN(eventTime) ||
+    Number.isNaN(gameTime) ||
+    Math.abs(eventTime - gameTime) > SCORE_MATCH_WINDOW_MS
+  ) {
+    return null;
+  }
+
+  const direct =
+    teamsMatch(game.homeTeam, event.home_team) &&
+    teamsMatch(game.awayTeam, event.away_team);
+
+  if (direct) {
+    return { homeScore: game.homeScore, awayScore: game.awayScore };
+  }
+
+  const swapped =
+    teamsMatch(game.homeTeam, event.away_team) &&
+    teamsMatch(game.awayTeam, event.home_team);
+
+  if (swapped) {
+    return { homeScore: game.awayScore, awayScore: game.homeScore };
+  }
+
+  return null;
+}
+
+function buildScoreResult(
+  event: CachedSettlementEvent,
+  scores: { homeScore: number; awayScore: number },
+): ScoreResult {
+  return {
+    id: event.event_id,
+    completed: true,
+    home_team: event.home_team,
+    away_team: event.away_team,
+    scores: [
+      { name: event.home_team, score: String(scores.homeScore) },
+      { name: event.away_team, score: String(scores.awayScore) },
+    ],
+  };
+}
+
+async function syncEspnFallbackScoresForSettlement({
+  admin,
+  pendingBets,
+  cachedEventsById,
+  scoreMap,
+}: {
+  admin: ReturnType<typeof createAdminClient>;
+  pendingBets: PendingSettlementBet[];
+  cachedEventsById: Map<string, CachedSettlementEvent>;
+  scoreMap: Map<string, ScoreResult>;
+}) {
+  const datesBySport = new Map<string, Set<string>>();
+
+  for (const bet of pendingBets) {
+    if (scoreMap.has(bet.event_id)) continue;
+
+    const event = cachedEventsById.get(bet.event_id);
+    const dateSource = event?.commence_time ?? bet.commence_time;
+    const commenceTime = new Date(dateSource).getTime();
+    if (Number.isNaN(commenceTime) || commenceTime > Date.now()) continue;
+
+    const dateKeys = [
+      formatEspnDate(dateSource, -1),
+      formatEspnDate(dateSource),
+      formatEspnDate(dateSource, 1),
+    ].filter((date): date is string => Boolean(date));
+
+    if (dateKeys.length === 0) continue;
+
+    const dates = datesBySport.get(bet.sport_key) ?? new Set<string>();
+    for (const dateKey of dateKeys) {
+      dates.add(dateKey);
+    }
+    datesBySport.set(bet.sport_key, dates);
+  }
+
+  for (const [sportKey, dates] of datesBySport) {
+    const games: EspnGame[] = [];
+
+    for (const date of dates) {
+      try {
+        const syncedGames = await syncModelScoresForSettlement(sportKey, date);
+        games.push(...syncedGames);
+      } catch (err) {
+        console.error(`ESPN fallback score sync failed for ${sportKey} ${date}:`, err);
+      }
+    }
+
+    const completedGames = games.filter(
+      (game) => game.completed && game.homeScore != null && game.awayScore != null,
+    );
+
+    for (const event of cachedEventsById.values()) {
+      if (event.sport_key !== sportKey || scoreMap.has(event.event_id)) continue;
+
+      for (const game of completedGames) {
+        const scores = getScoreMatch(event, game);
+        if (!scores) continue;
+
+        scoreMap.set(event.event_id, buildScoreResult(event, scores));
+
+        await admin
+          .from("cached_events")
+          .update({
+            completed: true,
+            status: "final",
+            home_score: scores.homeScore,
+            away_score: scores.awayScore,
+            synced_at: new Date().toISOString(),
+          })
+          .eq("event_id", event.event_id);
+
+        break;
+      }
+    }
+  }
+}
+
 async function settlePendingBets() {
   const admin = createAdminClient();
 
@@ -74,11 +232,15 @@ async function settlePendingBets() {
 
   const { data: cachedOddsRows } = await admin
     .from("cached_events")
-    .select("event_id, odds")
+    .select("event_id, sport_key, home_team, away_team, commence_time, odds")
     .in("event_id", eventIds);
 
+  const cachedEvents = (cachedOddsRows ?? []) as CachedSettlementEvent[];
+  const cachedEventsById = new Map(
+    cachedEvents.map((event) => [event.event_id, event]),
+  );
   const marketOutcomesByEvent = getMarketOutcomesByEvent(
-    (cachedOddsRows ?? []) as { event_id: string; odds: EventOdds | null }[],
+    cachedEvents,
   );
 
   if (isOddsApiEnabled() && isOddsApiConfigured()) {
@@ -107,6 +269,13 @@ async function settlePendingBets() {
       }
     }
   }
+
+  await syncEspnFallbackScoresForSettlement({
+    admin,
+    pendingBets: pendingBets as PendingSettlementBet[],
+    cachedEventsById,
+    scoreMap,
+  });
 
   const { data: cachedCompleted } = await admin
     .from("cached_events")

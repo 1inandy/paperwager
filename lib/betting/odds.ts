@@ -31,8 +31,16 @@ export function formatCurrency(amount: number): string {
 }
 
 /** Normalize team names for comparison. */
+const TEAM_NAME_ALIASES: Record<string, string> = {
+  usa: "united states",
+  "u.s.a.": "united states",
+  "u.s.": "united states",
+  "united states of america": "united states",
+};
+
 export function normalizeTeamName(name: string): string {
-  return name.trim().toLowerCase().replace(/\s+/g, " ");
+  const normalized = name.trim().toLowerCase().replace(/\s+/g, " ");
+  return TEAM_NAME_ALIASES[normalized] ?? normalized;
 }
 
 export function teamsMatch(a: string, b: string): boolean {

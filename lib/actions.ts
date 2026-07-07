@@ -22,6 +22,7 @@ import {
   isTournamentDuration,
   resolveTournamentEndsAt,
 } from "@/lib/tournaments/duration";
+import { isFinalEvent, isLiveEvent } from "@/lib/events/status";
 import type { BetSelection, TournamentRole, TournamentStatus } from "@/lib/types";
 import { customAlphabet } from "nanoid";
 
@@ -344,8 +345,28 @@ export async function cancelPendingBetAction(betId: string) {
     return { error: "Only pending bets can be cancelled" };
   }
 
-  const commenceTime = new Date(bet.commence_time);
-  if (commenceTime.getTime() <= Date.now()) {
+  const { data: event, error: eventError } = await admin
+    .from("cached_events")
+    .select("commence_time, completed, status")
+    .eq("event_id", bet.event_id)
+    .maybeSingle();
+
+  if (eventError) return { error: eventError.message };
+
+  const now = Date.now();
+  const eventStatus = event?.status;
+  const eventWasCancelledBeforeStart =
+    eventStatus === "cancelled" || eventStatus === "postponed";
+  const eventHasStartedByClock =
+    new Date(event?.commence_time ?? bet.commence_time).getTime() <= now;
+  const eventIsLiveOrFinal = event
+    ? isLiveEvent(event, now) || isFinalEvent(event)
+    : false;
+
+  if (
+    !eventWasCancelledBeforeStart &&
+    (eventHasStartedByClock || eventIsLiveOrFinal)
+  ) {
     return { error: "Event has already started — pending bets are locked" };
   }
 

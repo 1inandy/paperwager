@@ -1,4 +1,5 @@
 import { getSportConfig } from "@/lib/model/sport-config";
+import { getEspnPathForSportKey } from "@/lib/teams/espn-paths";
 
 const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports";
 
@@ -60,11 +61,12 @@ export async function fetchEspnScoreboard(
   dates?: string,
 ): Promise<EspnGame[]> {
   const config = getSportConfig(sportKey);
-  if (!config) return [];
+  const espnPath = config?.espnPath ?? getEspnPathForSportKey(sportKey);
+  if (!espnPath) return [];
 
   const url = dates
-    ? `${ESPN_BASE}/${config.espnPath}/scoreboard?dates=${dates}`
-    : `${ESPN_BASE}/${config.espnPath}/scoreboard`;
+    ? `${ESPN_BASE}/${espnPath}/scoreboard?dates=${dates}`
+    : `${ESPN_BASE}/${espnPath}/scoreboard`;
 
   const response = await fetch(url, {
     next: { revalidate: 0 },

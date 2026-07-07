@@ -25,6 +25,7 @@ interface BetRowProps {
     potential_payout: number;
     profit: number | null;
     status: string;
+    commence_time: string;
   };
   logos?: {
     home_logo_url?: string | null;
@@ -43,6 +44,7 @@ export function BetRow({ bet, logos }: BetRowProps) {
     logos?.away_logo_url,
   );
   const showTeamLogo = isTeamSelection(bet.selection, bet.home_team, bet.away_team);
+  const isPending = bet.status === "pending";
 
   return (
     <div className="card">
@@ -78,8 +80,12 @@ export function BetRow({ bet, logos }: BetRowProps) {
           >
             {bet.status}
           </span>
-          {bet.status === "pending" && (
-            <CancelBetButton betId={bet.id} stake={Number(bet.stake)} />
+          {isPending && (
+            <CancelBetButton
+              betId={bet.id}
+              stake={Number(bet.stake)}
+              commenceTime={bet.commence_time}
+            />
           )}
         </div>
       </div>

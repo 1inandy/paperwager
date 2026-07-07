@@ -175,8 +175,11 @@ export async function syncAllModelOdds(): Promise<number> {
   return total;
 }
 
-export async function syncModelScoresForSettlement(sportKey: string): Promise<EspnGame[]> {
-  const games = await fetchEspnScoreboard(sportKey);
+export async function syncModelScoresForSettlement(
+  sportKey: string,
+  dates?: string,
+): Promise<EspnGame[]> {
+  const games = await fetchEspnScoreboard(sportKey, dates);
   const admin = createAdminClient();
 
   for (const game of games.filter((g) => g.completed)) {
