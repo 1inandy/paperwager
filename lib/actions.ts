@@ -28,7 +28,6 @@ import { customAlphabet } from "nanoid";
 
 const inviteAlphabet = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 8);
 
-type BetRecord = ReturnType<typeof buildBetRecord>;
 type ActionResult = { error?: string; success?: true };
 
 function isTournamentRole(value: FormDataEntryValue | null): value is TournamentRole {
@@ -42,19 +41,6 @@ function isTournamentStatus(value: FormDataEntryValue | null): value is Tourname
 function getFormString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
-}
-
-function isMissingMarketOutcomesColumn(error: { message?: string } | null) {
-  return Boolean(
-    error?.message?.includes("market_outcomes") &&
-      error.message.includes("schema cache"),
-  );
-}
-
-function withoutMarketOutcomes(record: BetRecord): Omit<BetRecord, "market_outcomes"> {
-  const { market_outcomes, ...copy } = record;
-  void market_outcomes;
-  return copy;
 }
 
 async function getTournamentAccess(
@@ -116,7 +102,7 @@ export async function enterAsGuestAction() {
     headerList.get("x-real-ip") ??
     "unknown";
 
-  if (!checkRateLimit(`guest:ip:${ip}`, 10, 60 * 60 * 1000)) {
+  if (!(await checkRateLimit(`guest:ip:${ip}`, 10, 60 * 60 * 1000))) {
     throw new Error("Too many guest sessions. Try again later.");
   }
 
@@ -129,8 +115,26 @@ export async function signUpAction(formData: FormData) {
   const password = formData.get("password") as string;
   const displayName = formData.get("displayName") as string;
   const next = safeRedirectPath(formData.get("next"));
+  const headerList = await headers();
+  const ip =
+    headerList.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    headerList.get("x-real-ip") ??
+    "unknown";
+  const normalizedEmail = email.trim().toLowerCase();
 
-  const origin = await getSiteOrigin();
+  if (!(await checkRateLimit(`signup:ip:${ip}`, 5, 60 * 60 * 1000))) {
+    return { error: "Too many registration attempts. Try again later." };
+  }
+  if (!(await checkRateLimit(`signup:email:${normalizedEmail}`, 3, 60 * 60 * 1000))) {
+    return { error: "Too many registration attempts. Try again later." };
+  }
+
+  let origin: string;
+  try {
+    origin = await getSiteOrigin();
+  } catch {
+    return { error: "Account registration is temporarily unavailable. Please try again shortly." };
+  }
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signUp({
     email,
@@ -168,15 +172,20 @@ export async function resendConfirmationAction(email: string, nextValue?: string
     return { error: "Email is required" };
   }
 
-  if (!checkRateLimit(`resend:ip:${ip}`, 5, 60 * 60 * 1000)) {
+  if (!(await checkRateLimit(`resend:ip:${ip}`, 5, 60 * 60 * 1000))) {
     return { error: "Too many requests. Try again later." };
   }
-  if (!checkRateLimit(`resend:email:${normalizedEmail}`, 3, 60 * 60 * 1000)) {
+  if (!(await checkRateLimit(`resend:email:${normalizedEmail}`, 3, 60 * 60 * 1000))) {
     return { error: "Too many requests for this email. Try again later." };
   }
 
   const next = safeRedirectPath(nextValue);
-  const origin = await getSiteOrigin();
+  let origin: string;
+  try {
+    origin = await getSiteOrigin();
+  } catch {
+    return { error: "Confirmation emails are temporarily unavailable. Please try again shortly." };
+  }
   const supabase = await createClient();
   const { error } = await supabase.auth.resend({
     type: "signup",
@@ -260,58 +269,20 @@ export async function placeBetAction(
   const canonicalSelection = resolved.selection;
   const betRecord = buildBetRecord(scorecardId, canonicalSelection, stake);
   const admin = createAdminClient();
-
-  const { data: existingBet, error: existingBetError } = await admin
-    .from("bets")
-    .select("id")
-    .eq("scorecard_id", scorecardId)
-    .eq("event_id", canonicalSelection.eventId)
-    .eq("status", "pending")
-    .limit(1)
-    .maybeSingle();
-
-  if (existingBetError) return { error: existingBetError.message };
-  if (existingBet) {
-    return {
-      error: "You already have a pending bet on this event. Cancel it before placing another.",
-    };
-  }
-
-  const newBalance = Number(scorecard.balance) - stake;
-
-  let { data: bet, error: betError } = await admin
-    .from("bets")
-    .insert(betRecord)
-    .select("id")
-    .single();
-
-  if (isMissingMarketOutcomesColumn(betError)) {
-    const retry = await admin
-      .from("bets")
-      .insert(withoutMarketOutcomes(betRecord))
-      .select("id")
-      .single();
-
-    bet = retry.data;
-    betError = retry.error;
-  }
-
-  if (betError || !bet) return { error: betError?.message ?? "Failed to place bet" };
-
-  const { error: balanceError } = await admin
-    .from("scorecards")
-    .update({ balance: newBalance })
-    .eq("id", scorecardId);
-
-  if (balanceError) return { error: balanceError.message };
-
-  await admin.from("balance_transactions").insert({
-    scorecard_id: scorecardId,
-    bet_id: bet.id,
-    amount: -stake,
-    type: "bet_placed",
-    description: `${canonicalSelection.selection} — ${canonicalSelection.market}`,
+  const { error: placeError } = await admin.rpc("place_bet_atomic", {
+    p_bet: betRecord,
+    p_description: `${canonicalSelection.selection} — ${canonicalSelection.market}`,
   });
+
+  if (placeError) {
+    if (placeError.message.includes("insufficient_balance")) {
+      return { error: "Insufficient balance" };
+    }
+    if (placeError.message.includes("duplicate_pending_bet")) {
+      return { error: "You already have a pending bet on this event. Cancel it before placing another." };
+    }
+    return { error: "Unable to place bet. Please refresh and try again." };
+  }
 
   revalidatePath("/app");
   revalidatePath("/app/bets");
@@ -370,51 +341,13 @@ export async function cancelPendingBetAction(betId: string) {
     return { error: "Event has already started — pending bets are locked" };
   }
 
-  const { data: scorecard, error: scorecardError } = await admin
-    .from("scorecards")
-    .select("balance")
-    .eq("id", bet.scorecard_id)
-    .single();
-
-  if (scorecardError) return { error: scorecardError.message };
-  if (!scorecard) return { error: "Scorecard not found" };
-
-  const stake = Number(bet.stake);
-  const settledAt = new Date().toISOString();
-  const { data: cancelledBet, error: cancelError } = await admin
-    .from("bets")
-    .update({
-      status: "void",
-      settled_at: settledAt,
-      profit: 0,
-    })
-    .eq("id", bet.id)
-    .eq("status", "pending")
-    .select("id")
-    .maybeSingle();
-
-  if (cancelError) return { error: cancelError.message };
-  if (!cancelledBet) return { error: "Bet is no longer pending" };
-
-  const { error: balanceError } = await admin
-    .from("scorecards")
-    .update({ balance: Number(scorecard.balance) + stake })
-    .eq("id", bet.scorecard_id);
-
-  if (balanceError) return { error: balanceError.message };
-
-  const { error: transactionError } = await admin
-    .from("balance_transactions")
-    .insert({
-      scorecard_id: bet.scorecard_id,
-      bet_id: bet.id,
-      amount: stake,
-      type: "bet_void",
-      description: `Cancelled: ${bet.selection}`,
-    });
-
-  if (transactionError?.code !== "23505" && transactionError) {
-    return { error: transactionError.message };
+  const { data: cancelled, error: cancelError } = await admin.rpc("cancel_bet_atomic", {
+    p_bet_id: bet.id,
+    p_description: `Cancelled: ${bet.selection}`,
+  });
+  if (cancelError) return { error: "Unable to cancel bet. Please try again." };
+  if (cancelled !== true) {
+    return { error: "Bet is no longer pending" };
   }
 
   revalidatePath("/app");

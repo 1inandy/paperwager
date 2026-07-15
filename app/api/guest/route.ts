@@ -4,7 +4,7 @@ import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
   const ip = getClientIp(request);
-  if (!checkRateLimit(`guest:ip:${ip}`, 10, 60 * 60 * 1000)) {
+  if (!(await checkRateLimit(`guest:ip:${ip}`, 10, 60 * 60 * 1000))) {
     return NextResponse.json(
       { error: "Too many guest sessions. Try again later." },
       { status: 429 },

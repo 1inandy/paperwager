@@ -7,6 +7,13 @@ export async function getSiteOrigin(): Promise<string> {
     return configured.replace(/\/$/, "");
   }
 
+  // Vercel supplies this for every deployment. It makes auth redirects work
+  // even if APP_URL was accidentally omitted from the deployment environment.
+  const vercelUrl = process.env.VERCEL_URL?.trim();
+  if (vercelUrl) {
+    return `https://${vercelUrl.replace(/^https?:\/\//, "").replace(/\/$/, "")}`;
+  }
+
   if (process.env.NODE_ENV === "production") {
     throw new Error("APP_URL must be set in production");
   }

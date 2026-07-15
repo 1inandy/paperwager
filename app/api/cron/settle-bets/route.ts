@@ -13,7 +13,7 @@ import {
 } from "@/lib/model/sync";
 import { authorizeCron } from "@/lib/cron/auth";
 import { withCronLock } from "@/lib/cron/lock";
-import type { BetStatus, EventOdds } from "@/lib/types";
+import type { EventOdds } from "@/lib/types";
 import type { ScoreResult } from "@/lib/betting/settlement";
 import type { EspnGame } from "@/lib/model/espn";
 
@@ -321,26 +321,18 @@ async function settlePendingBets() {
     );
     if (result.status === "pending") continue;
 
-    const { data: scorecard } = await admin
-      .from("scorecards")
-      .select("balance")
-      .eq("id", bet.scorecard_id)
-      .single();
-
-    if (!scorecard) continue;
-
-    let newBalance = Number(scorecard.balance);
     let txType: string;
     let txAmount: number;
     let txDescription: string;
+    let payout = 0;
 
     if (result.status === "won") {
-      newBalance += result.payout;
+      payout = result.payout;
       txType = "bet_won";
       txAmount = result.payout;
       txDescription = `Won: ${bet.selection}`;
     } else if (result.status === "push" || result.status === "void") {
-      newBalance += result.payout;
+      payout = result.payout;
       txType = result.status === "push" ? "bet_push" : "bet_void";
       txAmount = result.payout;
       txDescription = `${result.status}: ${bet.selection}`;
@@ -350,44 +342,20 @@ async function settlePendingBets() {
       txDescription = `Lost: ${bet.selection}`;
     }
 
-    await admin
-      .from("bets")
-      .update({
-        status: result.status as BetStatus,
-        settled_at: new Date().toISOString(),
-        profit: result.profit,
-        settlement_rule_version: SETTLEMENT_RULE_VERSION,
-      })
-      .eq("id", bet.id)
-      .eq("status", "pending");
-
-    if (result.status === "won" || result.status === "push" || result.status === "void") {
-      await admin
-        .from("scorecards")
-        .update({ balance: newBalance })
-        .eq("id", bet.scorecard_id);
-
-      const { error: txError } = await admin.from("balance_transactions").insert({
-        scorecard_id: bet.scorecard_id,
-        bet_id: bet.id,
-        amount: txAmount,
-        type: txType,
-        description: txDescription,
-      });
-
-      if (txError?.code === "23505") continue;
-    } else {
-      const { error: txError } = await admin.from("balance_transactions").insert({
-        scorecard_id: bet.scorecard_id,
-        bet_id: bet.id,
-        amount: -Number(bet.stake),
-        type: txType,
-        description: txDescription,
-      });
-      if (txError?.code === "23505") continue;
+    const { data: settled, error: settleError } = await admin.rpc("settle_bet_atomic", {
+      p_bet_id: bet.id,
+      p_status: result.status,
+      p_profit: result.profit,
+      p_payout: payout,
+      p_settlement_rule_version: SETTLEMENT_RULE_VERSION,
+      p_transaction_type: txType,
+      p_transaction_amount: txAmount,
+      p_description: txDescription,
+    });
+    if (settleError) {
+      throw new Error(`Unable to settle bet ${bet.id}: ${settleError.message}`);
     }
-
-    settledCount++;
+    if (settled) settledCount++;
   }
 
   await admin

@@ -1,25 +1,31 @@
-const buckets = new Map<string, { count: number; resetAt: number }>();
+import { createHash } from "crypto";
+import { createAdminClient } from "@/lib/supabase/admin";
 
-/** Simple in-memory rate limiter (per dyno). Returns true if allowed. */
-export function checkRateLimit(
+/**
+ * Checks a rate-limit bucket stored in Postgres so limits apply across all
+ * serverless instances. Keys are hashed before storage to avoid retaining IPs
+ * or email addresses in the database.
+ */
+export async function checkRateLimit(
   key: string,
   limit: number,
   windowMs: number,
-): boolean {
-  const now = Date.now();
-  const bucket = buckets.get(key);
+): Promise<boolean> {
+  const keyHash = createHash("sha256").update(key).digest("hex");
+  const { data, error } = await createAdminClient().rpc("check_rate_limit", {
+    p_key_hash: keyHash,
+    p_limit: limit,
+    p_window_seconds: Math.ceil(windowMs / 1000),
+  });
 
-  if (!bucket || now > bucket.resetAt) {
-    buckets.set(key, { count: 1, resetAt: now + windowMs });
-    return true;
-  }
-
-  if (bucket.count >= limit) {
+  if (error) {
+    // Fail closed: a missing or unavailable shared limiter must not silently
+    // turn protected endpoints into unlimited ones.
+    console.error("Rate limit check failed:", error.message);
     return false;
   }
 
-  bucket.count += 1;
-  return true;
+  return data === true;
 }
 
 export function getClientIp(request: Request): string {

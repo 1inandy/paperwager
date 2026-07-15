@@ -58,6 +58,11 @@ npm run start
 
 Deploy on Vercel. The app uses `vercel.json` for scheduled cron routes, and production requires the environment variables above.
 
+Before deploying application changes, apply pending SQL files in
+`supabase/migrations/` to the production Supabase project. The security
+hardening migration adds the atomic balance operations and shared rate limiter
+used by the app.
+
 ## License
 
 MIT
