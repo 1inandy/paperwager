@@ -5,6 +5,7 @@ import { formatAmericanOdds, formatCurrency } from "@/lib/betting/odds";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { BalanceChart, type BalancePoint } from "@/components/balance-chart";
 import { PendingBetsRefresh } from "@/components/pending-bets-refresh";
+import { settleScorecardBetsOnVisit } from "@/lib/betting/on-visit-settlement";
 import type {
   Actor,
   BalanceTransaction,
@@ -60,6 +61,8 @@ export default async function DashboardPage() {
       </div>
     );
   }
+
+  await settleScorecardBetsOnVisit(scorecard.id);
 
   const [bets, transactions] = await Promise.all([
     getBetsForScorecard(scorecard.id),

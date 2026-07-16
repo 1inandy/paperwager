@@ -4,6 +4,7 @@ import { getBetsForScorecard } from "@/lib/actions";
 import { BetRow } from "@/components/bet-row";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PendingBetsRefresh } from "@/components/pending-bets-refresh";
+import { settleScorecardBetsOnVisit } from "@/lib/betting/on-visit-settlement";
 
 interface BetsPageProps {
   searchParams: Promise<{ tab?: string; placed?: string; cancelled?: string }>;
@@ -15,6 +16,8 @@ export default async function BetsPage({ searchParams }: BetsPageProps) {
   const scorecard = actor ? await getActiveScorecard(actor) : null;
 
   if (!scorecard) return null;
+
+  await settleScorecardBetsOnVisit(scorecard.id);
 
   const bets = await getBetsForScorecard(scorecard.id);
   const pendingCount = bets.filter((b) => b.status === "pending").length;

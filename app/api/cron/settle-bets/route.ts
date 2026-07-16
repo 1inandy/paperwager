@@ -213,13 +213,25 @@ async function syncEspnFallbackScoresForSettlement({
   }
 }
 
-async function settlePendingBets() {
+export async function settlePendingBets(scorecardId?: string) {
   const admin = createAdminClient();
 
-  const { data: pendingBets, error } = await admin
+  await admin
+    .from("tournaments")
+    .update({ status: "completed" })
+    .eq("status", "active")
+    .lt("ends_at", new Date().toISOString());
+
+  let pendingBetsQuery = admin
     .from("bets")
     .select("*")
     .eq("status", "pending");
+
+  if (scorecardId) {
+    pendingBetsQuery = pendingBetsQuery.eq("scorecard_id", scorecardId);
+  }
+
+  const { data: pendingBets, error } = await pendingBetsQuery;
 
   if (error) throw new Error(error.message);
   if (!pendingBets || pendingBets.length === 0) {
@@ -357,12 +369,6 @@ async function settlePendingBets() {
     }
     if (settled) settledCount++;
   }
-
-  await admin
-    .from("tournaments")
-    .update({ status: "completed" })
-    .eq("status", "active")
-    .lt("ends_at", new Date().toISOString());
 
   return { settled: settledCount, pending: pendingBets.length - settledCount };
 }

@@ -15,10 +15,6 @@
     {
       "path": "/api/cron/enrich-logos",
       "schedule": "0 7 * * *"
-    },
-    {
-      "path": "/api/cron/settle-bets",
-      "schedule": "*/15 * * * *"
     }
   ]
 }
