@@ -63,6 +63,13 @@ Before deploying application changes, apply pending SQL files in
 hardening migration adds the atomic balance operations and shared rate limiter
 used by the app.
 
+## Supabase confirmation email
+
+In Supabase Dashboard, open **Authentication → Email Templates → Confirm signup** and paste
+[`supabase/email-templates/confirm-signup.html`](supabase/email-templates/confirm-signup.html).
+Set the subject to `Verify your PaperWager email`. The template includes both Supabase's
+`{{ .ConfirmationURL }}` one-click link and `{{ .Token }}` six-digit verification code.
+
 ## License
 
 MIT

@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useState } from "react";
-import { signInAction, resendConfirmationAction } from "@/lib/actions";
+import { useActionState } from "react";
+import { signInAction } from "@/lib/actions";
 
 type SignInResult = { error?: string; needsConfirmation?: boolean; email?: string };
 
@@ -18,15 +18,6 @@ export function LoginForm({ next = "/app" }: LoginFormProps) {
     },
     null,
   );
-  const [resendState, setResendState] = useState<"idle" | "sending" | "sent" | "error">("idle");
-
-  async function handleResend() {
-    if (!state?.email) return;
-    setResendState("sending");
-    const result = await resendConfirmationAction(state.email, next);
-    setResendState(result?.error ? "error" : "sent");
-  }
-
   return (
     <>
       <form action={formAction} className="space-y-4">
@@ -63,18 +54,12 @@ export function LoginForm({ next = "/app" }: LoginFormProps) {
           <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
             <p>{state.error}</p>
             {state.needsConfirmation && (
-              <button
-                type="button"
-                onClick={handleResend}
-                disabled={resendState === "sending" || resendState === "sent"}
-                className="mt-1.5 font-medium text-primary hover:underline disabled:no-underline disabled:opacity-70"
+              <Link
+                href={`/verify-email?email=${encodeURIComponent(state.email ?? "")}&next=${encodeURIComponent(next)}`}
+                className="mt-1.5 inline-block font-medium text-primary hover:underline"
               >
-                {resendState === "sending"
-                  ? "Sending…"
-                  : resendState === "sent"
-                    ? "Confirmation email sent"
-                    : "Resend confirmation email"}
-              </button>
+                Enter confirmation code or resend email
+              </Link>
             )}
           </div>
         )}

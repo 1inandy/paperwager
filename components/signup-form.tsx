@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useState } from "react";
-import { signUpAction, resendConfirmationAction } from "@/lib/actions";
+import { useActionState } from "react";
+import { signUpAction } from "@/lib/actions";
 
 type SignUpResult = { error?: string; needsConfirmation?: boolean; email?: string };
 
@@ -11,19 +11,10 @@ interface SignUpFormProps {
 }
 
 export function SignUpForm({ next = "/app" }: SignUpFormProps) {
-  const [dismissed, setDismissed] = useState(false);
   const [state, formAction, pending] = useActionState<SignUpResult | null, FormData>(
-    async (_prev, formData) => {
-      setDismissed(false);
-      const result = await signUpAction(formData);
-      return result ?? null;
-    },
+    async (_prev, formData) => (await signUpAction(formData)) ?? null,
     null,
   );
-
-  if (state?.needsConfirmation && state.email && !dismissed) {
-    return <CheckEmail email={state.email} next={next} onStartOver={() => setDismissed(true)} />;
-  }
 
   return (
     <form action={formAction} className="space-y-4">
@@ -93,84 +84,5 @@ export function SignUpForm({ next = "/app" }: SignUpFormProps) {
         </Link>
       </p>
     </form>
-  );
-}
-
-function CheckEmail({
-  email,
-  next,
-  onStartOver,
-}: {
-  email: string;
-  next: string;
-  onStartOver: () => void;
-}) {
-  const [resendState, setResendState] = useState<"idle" | "sending" | "sent" | "error">("idle");
-
-  async function handleResend() {
-    setResendState("sending");
-    const result = await resendConfirmationAction(email, next);
-    setResendState(result?.error ? "error" : "sent");
-  }
-
-  return (
-    <div className="page-enter space-y-5 text-center">
-      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-primary">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.75}
-          className="h-7 w-7"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M2.25 6.75c0-.828.672-1.5 1.5-1.5h16.5c.828 0 1.5.672 1.5 1.5v10.5a1.5 1.5 0 0 1-1.5 1.5H3.75a1.5 1.5 0 0 1-1.5-1.5V6.75Z"
-          />
-          <path strokeLinecap="round" strokeLinejoin="round" d="m3 7 9 6 9-6" />
-        </svg>
-      </div>
-      <div>
-        <h2 className="text-lg font-semibold text-foreground">Check your inbox</h2>
-        <p className="mt-2 text-sm leading-relaxed text-muted">
-          We sent a confirmation link to{" "}
-          <span className="font-medium text-foreground">{email}</span>. Click it to activate
-          your account — you&apos;ll land right back where you started, already signed in.
-        </p>
-      </div>
-
-      <div className="rounded-lg border border-border bg-background px-4 py-3 text-left text-xs leading-relaxed text-muted">
-        Don&apos;t see it? Check spam, or resend below.
-      </div>
-
-      <button
-        type="button"
-        onClick={handleResend}
-        disabled={resendState === "sending" || resendState === "sent"}
-        className="btn-secondary w-full"
-      >
-        {resendState === "sending"
-          ? "Sending…"
-          : resendState === "sent"
-            ? "Email sent"
-            : "Resend confirmation email"}
-      </button>
-      {resendState === "error" && (
-        <p className="text-sm text-danger">Couldn&apos;t resend — try again in a moment.</p>
-      )}
-
-      <p className="text-sm text-muted">
-        Wrong email?{" "}
-        <button
-          type="button"
-          onClick={onStartOver}
-          className="font-medium text-primary hover:underline"
-        >
-          Start over
-        </button>
-      </p>
-    </div>
   );
 }

@@ -5,9 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { migrateGuestToUser } from "@/lib/guest/session";
 import { safeRedirectPath } from "@/lib/auth/redirect";
 
-// Landing target for the "Confirm signup" email link. Establishes the
-// session server-side (via cookies) so the user is already logged in
-// once they arrive at /app — no second login required.
+// Landing target for the email's one-click verification link. Establishes the
+// session server-side (via cookies), then shows the verified success state.
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const tokenHash = searchParams.get("token_hash");
@@ -25,7 +24,7 @@ export async function GET(request: NextRequest) {
       if (data.user) {
         await migrateGuestToUser(data.user.id);
       }
-      redirect(next);
+      redirect(`/verified?next=${encodeURIComponent(next)}`);
     }
   }
 

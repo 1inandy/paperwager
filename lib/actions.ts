@@ -30,6 +30,8 @@ const inviteAlphabet = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 8);
 
 type ActionResult = { error?: string; success?: true };
 
+type SignUpResult = { error?: string; needsConfirmation?: boolean; email?: string };
+
 function isTournamentRole(value: FormDataEntryValue | null): value is TournamentRole {
   return value === "admin" || value === "member";
 }
@@ -110,7 +112,7 @@ export async function enterAsGuestAction() {
   redirect("/app");
 }
 
-export async function signUpAction(formData: FormData) {
+export async function signUpAction(formData: FormData): Promise<SignUpResult> {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
   const displayName = formData.get("displayName") as string;
@@ -148,9 +150,9 @@ export async function signUpAction(formData: FormData) {
   if (error) return { error: error.message };
 
   // If email confirmation is required, Supabase returns a user but no session.
-  // Don't send them into /app — they aren't logged in yet.
+  // Send them to the shared code/link verification experience.
   if (data.user && !data.session) {
-    return { needsConfirmation: true, email };
+    redirect(`/verify-email?email=${encodeURIComponent(normalizedEmail)}&next=${encodeURIComponent(next)}`);
   }
 
   if (data.user) {
@@ -195,6 +197,47 @@ export async function resendConfirmationAction(email: string, nextValue?: string
 
   if (error) return { error: error.message };
   return { success: true };
+}
+
+export async function verifyEmailCodeAction(email: string, token: string, nextValue?: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedToken = token.replace(/\s/g, "");
+  const next = safeRedirectPath(nextValue);
+
+  if (!normalizedEmail) return { error: "Email is required." };
+  if (!/^\d{6}$/.test(normalizedToken)) {
+    return { error: "Enter the six-digit code from your email." };
+  }
+
+  const headerList = await headers();
+  const ip =
+    headerList.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    headerList.get("x-real-ip") ??
+    "unknown";
+
+  if (!(await checkRateLimit(`verify:ip:${ip}`, 10, 60 * 60 * 1000))) {
+    return { error: "Too many verification attempts. Try again later." };
+  }
+  if (!(await checkRateLimit(`verify:email:${normalizedEmail}`, 10, 60 * 60 * 1000))) {
+    return { error: "Too many verification attempts for this email. Try again later." };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.verifyOtp({
+    email: normalizedEmail,
+    token: normalizedToken,
+    type: "signup",
+  });
+
+  if (error) {
+    return { error: "That code is invalid or has expired. Request a new one and try again." };
+  }
+
+  if (data.user) {
+    await migrateGuestToUser(data.user.id);
+  }
+
+  redirect(`/verified?next=${encodeURIComponent(next)}`);
 }
 
 export async function signInAction(formData: FormData) {

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Verify your PaperWager email</title>
+  </head>
+  <body style="margin:0; padding:0; background:#090d0b; color:#e8f1ec; font-family:Arial, Helvetica, sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#090d0b; padding:40px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px; background:#111814; border:1px solid #26352c; border-radius:16px; overflow:hidden;">
+            <tr>
+              <td style="padding:32px 36px 20px;">
+                <p style="margin:0; color:#4ade80; font-size:20px; font-weight:700; letter-spacing:-0.3px;">PaperWager</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:4px 36px 32px;">
+                <h1 style="margin:0 0 12px; color:#f6fbf7; font-size:28px; line-height:1.2; letter-spacing:-0.5px;">Verify your email</h1>
+                <p style="margin:0; color:#b6c5bb; font-size:16px; line-height:1.6;">
+                  Welcome to PaperWager. Confirm your email to finish setting up your account and start tracking your picks.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td align="center" style="padding:0 36px 30px;">
+                <a href="{{ .ConfirmationURL }}" style="display:inline-block; background:#22c55e; border-radius:8px; color:#07120a; font-size:16px; font-weight:700; line-height:1; padding:15px 22px; text-decoration:none;">Verify email</a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 36px 30px;">
+                <p style="margin:0 0 12px; color:#b6c5bb; font-size:14px; line-height:1.5;">Or enter this six-digit code in PaperWager:</p>
+                <div style="background:#0b110d; border:1px solid #304236; border-radius:8px; color:#f6fbf7; font-family:Menlo, Consolas, monospace; font-size:28px; font-weight:700; letter-spacing:8px; padding:16px; text-align:center;">{{ .Token }}</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="border-top:1px solid #26352c; padding:24px 36px 32px;">
+                <p style="margin:0; color:#829087; font-size:12px; line-height:1.6;">
+                  If you didn&rsquo;t create a PaperWager account, you can safely ignore this email. Do not share this code with anyone.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
